@@ -1,5 +1,7 @@
 # Find the force of gravity between two objects
 
+https://www.codewars.com/kata/5b609ebc8f47bd595e000627
+
 Your job is to find the gravitational force between two spherical objects (obj1 , obj2).
 
 # input
