@@ -39,27 +39,13 @@ class Calculator {
     return Math.round(val * 100.0) / 100.0;
   }
 
-  double getTotalArea() {
-    return 0;
-  }
+  double getTotalArea(Shape... shapes) {
+    double totalArea = 0;
 
-  double getTotalArea(Shape a) {
-    return round(a.area());
-  }
+    for (int i = 0; i < shapes.length; i++) {
+      totalArea += shapes[i].area();
+    }
 
-  double getTotalArea(Shape a, Shape b) {
-    return round(a.area() + b.area());
-  }
-
-  double getTotalArea(Shape a, Shape b, Shape c) {
-    return round(a.area() + b.area() + c.area());
-  }
-
-  double getTotalArea(Shape a, Shape b, Shape c, Shape d, Shape e) {
-    return round(a.area() + b.area() + c.area() + d.area() + e.area());
-  }
-
-  double getTotalArea(Shape a, Shape b, Shape c, Shape d, Shape e, Shape f, Shape g, Shape h) {
-    return round(a.area() + b.area() + c.area() + d.area() + e.area() + f.area() + g.area() + h.area());
+    return round(totalArea);
   }
 }
