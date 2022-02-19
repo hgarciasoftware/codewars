@@ -1,35 +1,21 @@
 class Inspector {
-  static countries;
-
   constructor() {
-    const countries = [
-      "arstotzka", "antegria", "impor", "kolechia", "obristan", "republia", "united federation"
-    ];
-
-    Inspector.countries = countries;
-    Inspector.normalize = function (string) {
-      return string.toLowerCase().split(', ').reverse().join(' ')
-    };
-    this.requirements = {};
-    this.allowedCountries = new Set();
-    this.workerRequirements = new Set();
+    this.requirements = new Map();
     this.restrictedCountries = new Set();
     this.wantedCriminal = null;
 
-    for (let i = 0; i < countries.length; i++) {
-      const country = countries[i];
+    for (let i = 0; i < Inspector.countries.length; i++) {
+      const country = Inspector.countries[i];
 
-      this.requirements[country] = new Set();
+      this.requirements.set(country, new Set());
       this.restrictedCountries.add(country);
     }
   }
 
   updateRequirements(update) {
-    console.log(update);
+    const who = update.match(/entrants|foreigners|citizens/)[0];
+    const documentName = update.match(/require (.*)/)[1];
 
-    const who = update.match(/entrants|foreigners|citizens|workers/)[0];
-    const isNoLongerRequired = update.includes('no longer');
-    const document = update.match(/require (.*)/)[1];
     let countries = null;
 
     if (who === 'entrants') {
@@ -40,28 +26,18 @@ class Inspector {
       countries = update.match(/citizens of (.*) require/)[1].split(', ');
     }
 
-    if (who === 'workers') {
-      if (isNoLongerRequired) {
-        this.workerRequirements.delete(document);
-      } else {
-        this.workerRequirements.add(document);
-      }
-    } else {
-      for (let i = 0; i < countries.length; i++) {
-        const country = countries[i];
+    for (let i = 0; i < countries.length; i++) {
+      const requirementSet = this.requirements.get(countries[i]);
 
-        if (isNoLongerRequired) {
-          this.requirements[country].delete(document);
-        } else {
-          this.requirements[country].add(document);
-        }
+      if (update.includes('no longer')) {
+        requirementSet.delete(documentName);
+      } else {
+        requirementSet.add(documentName);
       }
     }
   }
 
   updateTravelBans(update) {
-    console.log(update);
-
     const action = update.match(/allow|deny/)[0];
     const countries = update.match(/citizens of (.*)/)[1].split(', ');
 
@@ -69,24 +45,23 @@ class Inspector {
       const country = countries[i];
 
       if (action === "allow") {
-        this.allowedCountries.add(country);
         this.restrictedCountries.delete(country);
       } else {
-        this.allowedCountries.delete(country);
         this.restrictedCountries.add(country);
       }
     }
   }
 
   updateWantedCriminal(update) {
-    console.log(update);
-
     const criminal = update.match(/wanted by the state: (.*)/)[1];
 
     this.wantedCriminal = criminal;
   }
 
   receiveBulletin(bulletin) {
+    console.log(bulletin);
+    console.log('------');
+
     const bulletinArray = bulletin.split('\n');
 
     for (let i = 0; i < bulletinArray.length; i++) {
@@ -104,41 +79,89 @@ class Inspector {
     }
   }
 
+  isAWantedCriminal(name) {
+    name = name.split(', ').reverse().join(' ');
+
+    return name === this.wantedCriminal;
+  }
+
   inspect(person) {
-    const map = new Map();
+    console.log(person);
+    console.log('======');
 
-    for (const document in person) {
-      const information = person[document].split('\n').map(info => info.split(': '));
+    const entrantInformation = new Map();
 
-      for (const [key, value] of information) {
-        if (key === 'NAME' && Inspector.normalize(value) === this.wantedCriminal) {
+    let expiredDocument = null;
+
+    for (let documentName in person) {
+      const infoList = person[documentName].split('\n');
+      const infoEntries = infoList.map(info => info.toLowerCase().split(': '));
+
+      for (const [key, value] of infoEntries) {
+        if (key === 'name' && this.isAWantedCriminal(value)) {
           return 'Detainment: Entrant is a wanted criminal.';
         }
 
-        if (key === 'EXP') {
-          if (new Date(value) <= new Date('1982.11.22')) {
-            return 'Entry denied: ' + document + ' expired.'
+        if (entrantInformation.has(key) && entrantInformation.get(key) !== value) {
+          if (key === 'id#') return 'Detainment: ID number mismatch.';
+          if (key === 'nation') return 'Detainment: nationality mismatch.'
+        }
+
+        if (key === 'exp') {
+          if (new Date(value) <= Inspector.cutoffDate) {
+            expiredDocument = documentName.replace(/_/g, ' ');
           }
-        } else if (!map.has(key)) {
-          map.set(key, value);
-        } else if (map.get(key) !== value) {
-          if (key === 'ID#') return 'Detainment: ID number mismatch.';
+        } else if (!entrantInformation.has(key)) {
+          entrantInformation.set(key, value);
         }
       }
     }
 
-    if (map.size === 0) return 'Entry denied: missing required passport.';
+    if (entrantInformation.size === 0) return 'Entry denied: missing required passport.';
+    if (expiredDocument !== null) return `Entry denied: ${expiredDocument} expired.`;
 
-    const nation = map.get('NATION').toLowerCase();
+    const entrantNation = entrantInformation.get('nation');
 
-    if (this.restrictedCountries.has(nation)) return 'Entry denied: citizen of banned nation.'
+    if (this.restrictedCountries.has(entrantNation)) return 'Entry denied: citizen of banned nation.';
 
-    const hasRequiredDocuments = Object.keys(person).every(document => {
-      return this.requirements[map.get('NATION').toLowerCase()].has(document);
+    const requirementList = Array.from(this.requirements.get(entrantNation));
+    const entrantDocuments = Object.keys(person).map(documentName => documentName.replace(/_/g, ' '));
+
+    let entrantIsAuthorizedDiplomat = null;
+    let missingDocument = null;
+
+    const hasRequiredDocuments = requirementList.every(documentName => {
+      if (documentName === 'access permit') {
+        if (entrantDocuments.includes('grant of asylum')) return true;
+        if (entrantDocuments.includes('diplomatic authorization')) {
+          entrantIsAuthorizedDiplomat = entrantInformation.get('access').includes('arstotzka');
+
+          return entrantIsAuthorizedDiplomat;
+        }
+      }
+
+      const entrantHasRequiredDocument = entrantDocuments.includes(documentName);
+
+      if (!entrantHasRequiredDocument) {
+        missingDocument = documentName;
+      }
+
+      return entrantHasRequiredDocument;
     });
 
-    if (!hasRequiredDocuments) return 'Entry denied: missing required passport.';
+    if (!hasRequiredDocuments) {
+      if (entrantIsAuthorizedDiplomat === false) {
+        return 'Entry denied: invalid diplomatic authorization.'
+      }
 
-    return nation === 'arstotzka' ? 'Glory to Arstotzka.' : 'Cause no trouble.';
+      return `Entry denied: missing required ${missingDocument}.`;
+    }
+
+    return entrantNation === 'arstotzka' ? 'Glory to Arstotzka.' : 'Cause no trouble.';
   }
 }
+
+Inspector.countries = [
+  "arstotzka", "antegria", "impor", "kolechia", "obristan", "republia", "united federation"
+];
+Inspector.cutoffDate = new Date('1982.11.22');
