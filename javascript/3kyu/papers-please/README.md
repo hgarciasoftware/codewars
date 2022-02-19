@@ -150,3 +150,5 @@ inspector.inspect(entrant1); //'Glory to Arstotzka.'
 If you enjoyed this kata, be sure to check out [my other katas](https://www.codewars.com/users/docgunthrop/authored).
 
 #fundamentals #object-oriented-programming #games #regular-expressions #declarative-programming #advanced-language-features #strings
+
+### :slightly_smiling_face:

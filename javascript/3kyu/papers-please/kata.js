@@ -1,6 +1,7 @@
 class Inspector {
   constructor() {
     this.requirements = new Map();
+    this.workerRequirements = new Set();
     this.restrictedCountries = new Set();
     this.wantedCriminal = null;
 
@@ -13,26 +14,34 @@ class Inspector {
   }
 
   updateRequirements(update) {
-    const who = update.match(/entrants|foreigners|citizens/)[0];
+    const who = update.match(/entrants|foreigners|citizens|workers/)[0];
     const documentName = update.match(/require (.*)/)[1];
 
-    let countries = null;
-
-    if (who === 'entrants') {
-      countries = Inspector.countries;
-    } else if (who === 'foreigners') {
-      countries = Inspector.countries.filter(country => country !== 'arstotzka');
-    } else if (who === 'citizens') {
-      countries = update.match(/citizens of (.*) require/)[1].split(', ');
-    }
-
-    for (let i = 0; i < countries.length; i++) {
-      const requirementSet = this.requirements.get(countries[i]);
-
+    if (who === 'workers') {
       if (update.includes('no longer')) {
-        requirementSet.delete(documentName);
+        this.workerRequirements.delete(documentName);
       } else {
-        requirementSet.add(documentName);
+        this.workerRequirements.add(documentName);
+      }
+    } else {
+      let countries = [];
+
+      if (who === 'entrants') {
+        countries = Inspector.countries;
+      } else if (who === 'foreigners') {
+        countries = Inspector.countries.filter(country => country !== 'arstotzka');
+      } else if (who === 'citizens') {
+        countries = update.match(/citizens of (.*?) (?:no longer )?require/)[1].split(', ');
+      }
+
+      for (let i = 0; i < countries.length; i++) {
+        const requirementSet = this.requirements.get(countries[i]);
+
+        if (update.includes('no longer')) {
+          requirementSet.delete(documentName);
+        } else {
+          requirementSet.add(documentName);
+        }
       }
     }
   }
@@ -59,9 +68,6 @@ class Inspector {
   }
 
   receiveBulletin(bulletin) {
-    console.log(bulletin);
-    console.log('------');
-
     const bulletinArray = bulletin.split('\n');
 
     for (let i = 0; i < bulletinArray.length; i++) {
@@ -86,9 +92,6 @@ class Inspector {
   }
 
   inspect(person) {
-    console.log(person);
-    console.log('======');
-
     const entrantInformation = new Map();
 
     let expiredDocument = null;
@@ -117,15 +120,20 @@ class Inspector {
       }
     }
 
-    if (entrantInformation.size === 0) return 'Entry denied: missing required passport.';
+    if (!person.hasOwnProperty('passport')) return 'Entry denied: missing required passport.';
     if (expiredDocument !== null) return `Entry denied: ${expiredDocument} expired.`;
 
     const entrantNation = entrantInformation.get('nation');
 
     if (this.restrictedCountries.has(entrantNation)) return 'Entry denied: citizen of banned nation.';
 
-    const requirementList = Array.from(this.requirements.get(entrantNation));
-    const entrantDocuments = Object.keys(person).map(documentName => documentName.replace(/_/g, ' '));
+    const requirementList = [...this.requirements.get(entrantNation)];
+
+    if (entrantInformation.get('purpose') === 'work') {
+      requirementList.push(...this.workerRequirements);
+    }
+
+    const entrantDocuments = Object.keys(person).map(documentName => documentName.toLowerCase().replace(/_/g, ' '));
 
     let entrantIsAuthorizedDiplomat = null;
     let missingDocument = null;
@@ -140,10 +148,24 @@ class Inspector {
         }
       }
 
-      const entrantHasRequiredDocument = entrantDocuments.includes(documentName);
+      let entrantHasRequiredDocument = entrantDocuments.includes(documentName);
 
       if (!entrantHasRequiredDocument) {
-        missingDocument = documentName;
+        if (documentName.includes('vaccination')) {
+          if (entrantInformation.has('vaccines')) {
+            const vaccination = documentName.match(/(.*) vaccination/)[1];
+            const vaccinationList = entrantInformation.get('vaccines').split(', ');
+
+            missingDocument = vaccinationList.includes(vaccination) ? null : 'vaccination';
+            entrantHasRequiredDocument = missingDocument === null;
+          } else {
+            missingDocument = 'certificate of vaccination';
+          }
+        } else if (documentName === 'id card') {
+          missingDocument = 'ID card';
+        } else {
+          missingDocument = documentName;
+        }
       }
 
       return entrantHasRequiredDocument;
